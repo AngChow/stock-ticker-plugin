@@ -1,0 +1,10 @@
+- insert:
+    - id: stock-ticker
+      name: '@local/stock-ticker'
+      config:
+        symbols:
+          - sh600519
+          - sh601688
+          - sz300750
+        pollSeconds: 2
+        enabled: true

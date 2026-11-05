@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Stock Ticker",
+    "description": "Shows your watchlist prices live (red up, green down) at the top-right of DSH; per-second refresh during A-share trading hours via Tencent quotes with Zhangle validation."
+  }
+}
