@@ -6,9 +6,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { marketPhase, shanghaiNow, isLivePhase } from '../lib/market-hours.js'
+import { marketPhase, shanghaiNow, isLivePhase, effectivePhase, PHASE_LABELS } from '../lib/market-hours.js'
 import { normalizeSymbol, displayCode } from '../lib/normalize.js'
-import { fetchTencentQuotes } from '../lib/quotes-tencent.js'
+import { fetchTencentQuotes, quotesFresh } from '../lib/quotes-tencent.js'
 import { parseZhangleQuote, htApiKey, resetHtApiKeyCache } from '../lib/zhangle.js'
 import { normalizeSettings } from '../index.js'
 
@@ -197,4 +197,32 @@ test('normalizeSettings: 宽容化与去重', () => {
 
   const clamped = normalizeSettings({ pollSeconds: 999 })
   assert.equal(clamped.pollSeconds, 120)
+})
+
+test('quotesFresh: 行情时间戳是否为上海时区今天', () => {
+  const live = [{ time: '2026-11-05 09:31:02' }]
+  assert.equal(quotesFresh(live, '2026-11-05'), true)
+  assert.equal(quotesFresh(live, '2026-11-07'), false) // 时间戳停在上一交易日 → 节假日休市
+})
+
+test('quotesFresh: 任一市场当天有数据即算新', () => {
+  const mixed = [{ time: '2026-11-05 16:14:58' }, { time: '2026-11-06 04:00:00' }]
+  assert.equal(quotesFresh(mixed, '2026-11-06'), true)
+  assert.equal(quotesFresh(mixed, '2026-11-08'), false)
+})
+
+test('quotesFresh: 无可解析时间返回 null（保持原判定）', () => {
+  assert.equal(quotesFresh([], '2026-11-05'), null)
+  assert.equal(quotesFresh(undefined, '2026-11-05'), null)
+  assert.equal(quotesFresh([{ time: null }, { time: 'bad' }], '2026-11-05'), null)
+})
+
+test('effectivePhase: 墙钟开盘 + 行情滞后 → holiday 展示态', () => {
+  assert.equal(effectivePhase('open', true), 'holiday')
+  assert.equal(effectivePhase('open', false), 'open')
+  assert.equal(effectivePhase('closed', true), 'closed')
+  assert.equal(effectivePhase('break', true), 'break')
+  assert.equal(effectivePhase('pre', true), 'pre')
+  assert.equal(isLivePhase('holiday'), false)
+  assert.equal(PHASE_LABELS.holiday, '休市（节假日）')
 })

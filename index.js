@@ -5,18 +5,23 @@
  * - 盘中：腾讯免费行情（qt.gtimg.cn）按 pollSeconds 秒批量轮询，真·秒级跳动；
  * - 配置股票时：涨乐财富通 queryIndicator 校验代码并解析名称（与
  *   query-indicator skill 同源接口直调），腾讯兜底；
- * - 休市：保留最后一次快照并标注阶段（盘前/午休/已收盘）。
+ * - 休市：保留最后一次快照并标注阶段（盘前/午休/已收盘）；
+ * - 节假日自检：开盘窗口内若行情时间戳仍是上一交易日，判定为休市——
+ *   阶段改标 holiday、降频到 HOLIDAY_PROBE_MS 探测，数据变新即恢复全速。
  *
  * HT_APIKEY 只在内存中读取（~/.htsc-skills/config），不落日志、不进返回值。
  */
 
-import { marketPhase, isLivePhase, PHASE_LABELS } from './lib/market-hours.js'
+import { marketPhase, isLivePhase, effectivePhase, PHASE_LABELS, shanghaiNow } from './lib/market-hours.js'
 import { normalizeSymbol, displayCode } from './lib/normalize.js'
 import { appendFileSync } from 'node:fs'
-import { fetchTencentQuotes } from './lib/quotes-tencent.js'
+import { fetchTencentQuotes, quotesFresh } from './lib/quotes-tencent.js'
 import { zhangleResolve } from './lib/zhangle.js'
 
 const CHANNEL = '/api/stock-ticker'
+
+/** 节假日休市探测间隔：墙钟开盘但行情滞后时按此节奏低频探测，数据变新即恢复全速。 */
+const HOLIDAY_PROBE_MS = 60_000
 
 /** RPC 通道经 webServer 注册，二者都是 desktop web 环境的必备服务。 */
 // 不声明顶层强依赖：任何可选服务缺失时只降级，绝不让 boot 因本插件失败。
@@ -317,6 +322,8 @@ function applyUnsafe(ctx, config) {
     lastError: null,
     invalidCodes: [],
     phase: marketPhase(),
+    holidayStale: false, // 墙钟开盘但行情时间戳仍是上一交易日（节假日/临时休市）
+    lastProbeAt: 0,
     fetching: false,
     fetchedForCurrentList: false,
     storageError: null,
@@ -396,6 +403,13 @@ function applyUnsafe(ctx, config) {
         state.snapshotAt = Date.now()
         state.invalidCodes = result.invalid
         state.lastError = result.invalid.length > 0 ? `无行情数据：${result.invalid.join('、')}` : null
+        // 节假日自检：行情时间戳全部滞后于上海时区今天 → 墙钟开盘窗口其实是休市；
+        // 任一行情恢复当天日期立即解除。无可解析时间（null）时保持原判定。
+        const fresh = quotesFresh(result.quotes, shanghaiNow().ymd)
+        if (fresh !== null) {
+          if (!state.holidayStale && !fresh) state.lastProbeAt = Date.now()
+          state.holidayStale = !fresh
+        }
       } else {
         state.lastError = result.error
       }
@@ -413,9 +427,20 @@ function applyUnsafe(ctx, config) {
   }
 
   function tick() {
-    state.phase = marketPhase()
+    const wallPhase = marketPhase()
+    state.phase = effectivePhase(wallPhase, state.holidayStale)
     if (!state.settings.enabled || state.settings.symbols.length === 0) return
-    if (isLivePhase(state.phase)) {
+    if (isLivePhase(wallPhase)) {
+      // 墙钟开盘但行情时间戳滞后 → 节假日休市：按 HOLIDAY_PROBE_MS 低频探测，
+      // 探测到当天数据（下一个真实交易日开盘）即恢复 pollSeconds 全速。
+      if (state.holidayStale) {
+        const now = Date.now()
+        if (now - state.lastProbeAt >= HOLIDAY_PROBE_MS) {
+          state.lastProbeAt = now
+          void pollOnce()
+        }
+        return
+      }
       void pollOnce()
       return
     }
