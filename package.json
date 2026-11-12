@@ -1,5 +1,5 @@
 {
-  "name": "@local/stock-ticker",
+  "name": "stock-ticker",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "files": [
     "index.js",
-    "lib/*.js",
+    "lib",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",

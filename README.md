@@ -4,6 +4,23 @@
 
 > 收起时是一枚胶囊（股票名 + 现价 + 涨跌幅），点开是完整自选列表。
 
+## 界面
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/capsule.jpg" alt="右上角收起态胶囊"></td>
+    <td width="50%"><img src="docs/images/panel.jpg" alt="展开后的自选列表"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>收起态：一枚胶囊，股票名 + 现价 + 涨跌幅</sub></td>
+    <td align="center"><sub>展开：完整自选，并标注「已收盘」等交易阶段</sub></td>
+  </tr>
+</table>
+
+对话页里也一直挂着，不抢输入框的位置：
+
+<img src="docs/images/in-chat.jpg" alt="对话页中的行情胶囊" width="100%">
+
 ## 功能
 
 - **常驻悬浮胶囊**：挂在 `shell.overlay`，任何页面都看得见，可折叠；位置与间距与 DSH 头部按钮行对齐。
@@ -28,7 +45,7 @@ cd ~/.dsh/profiles/desktop
 pnpm add link:/绝对路径/stock-ticker-plugin
 
 # 3. 在 profile 的 package.json 里把插件加入 bundles
-#    dsh.profile.bundles 末尾追加 "stock-ticker-plugin"
+#    dsh.profile.bundles 末尾追加 "stock-ticker"
 ```
 
 也可以直接在 DSH 的「插件」页面安装，或使用 `plugin_manager` 工具：
@@ -46,7 +63,7 @@ plugin_manager(action=install_bundle, target=link:/绝对路径/stock-ticker-plu
 ```yaml
 - insert:
     - id: stock-ticker
-      name: 'stock-ticker-plugin'
+      name: 'stock-ticker'
       config:
         symbols: [sh600519, sh601688, sz300750]
         pollSeconds: 2      # 1–120
@@ -62,11 +79,11 @@ plugin_manager(action=install_bundle, target=link:/绝对路径/stock-ticker-plu
 | 场景 | 数据源 | 说明 |
 | --- | --- | --- |
 | 盘中行情 | 腾讯免费行情 `qt.gtimg.cn` | 毫秒级批量接口，默认 2 秒一轮（1–120 秒可配） |
-| 添加 / 校验代码 | 涨乐财富通 `queryIndicator` | 自然语言网关，解析股票名并校验代码，单次 5–14 秒，仅用于低频操作 |
+| 添加 / 校验代码 | 腾讯（主）／ 涨乐财富通（兜底，可选） | 腾讯直接返回代码对应名称，秒级；仅当腾讯查不到或不可达时才回落到涨乐（5–14 秒，需 `HT_APIKEY`） |
 
-涨乐接口延迟较高，因此**不做盘中轮询**；秒级行情全部走腾讯的结构化接口，涨乐只在新增股票时兜底校验名称。
+涨乐接口延迟较高，因此**不做盘中轮询**；秒级行情全部走腾讯的结构化接口。新增股票同样腾讯优先，涨乐只在腾讯查无此代码时兜底——没配 `HT_APIKEY` 的同事不受影响，只是那类边界代码（如部分北交所标的）会添加失败。
 
-`HT_APIKEY` 从 `~/.htsc-skills/config` 读取，仅驻留内存，不落盘、不打印。
+`HT_APIKEY`（**可选**）从 `~/.htsc-skills/config` 读取，仅驻留内存，不落盘、不打印；读不到时自动跳过涨乐兜底，不做任何提示阻塞。
 
 ## 开发
 

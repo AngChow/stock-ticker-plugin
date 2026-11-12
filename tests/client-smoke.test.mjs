@@ -51,7 +51,7 @@ function loadClientModule() {
 
 test('client.js 声明包名 id，并导出 apply', () => {
   const { spec, mod } = loadClientModule()
-  assert.equal(spec.id, '@local/stock-ticker')
+  assert.equal(spec.id, 'stock-ticker')
   assert.equal(typeof mod.apply, 'function')
 })
 

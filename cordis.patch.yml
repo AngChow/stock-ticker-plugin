@@ -1,6 +1,6 @@
 - insert:
     - id: stock-ticker
-      name: '@local/stock-ticker'
+      name: 'stock-ticker'
       config:
         symbols:
           - sh600519

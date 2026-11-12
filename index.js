@@ -1,5 +1,5 @@
 /**
- * @local/stock-ticker — 自选行情悬浮条（Host 半区）
+ * stock-ticker — 自选行情悬浮条（Host 半区）
  *
  * 数据源策略（用户选定）：
  * - 盘中：腾讯免费行情（qt.gtimg.cn）按 pollSeconds 秒批量轮询，真·秒级跳动；
@@ -75,7 +75,7 @@ const tickerDomain = {
 }
 
 const apply = (ctx, config) => {
-  bootLog(`apply start (plugin @local/stock-ticker)`)
+  bootLog(`apply start (plugin stock-ticker)`)
   // 诊断钩子：Cordis 在 _reload 的 catch 里只调 logger.error 就把错误吞掉，
   // 宿主 boot 只看到 failed、看不到原因。这里把每条 error 落盘，
   // 行为不变（仍调用原方法），纯粹为了拿到真相。
@@ -504,36 +504,44 @@ function applyUnsafe(ctx, config) {
     }
   }
 
-  /** 添加校验：涨乐优先（校验代码+解析名称），腾讯并行兜底。 */
+  /** 添加校验：腾讯优先（秒级解析名称），腾讯查不到时才回落到涨乐（key 可选）。 */
   async function resolveInput(input) {
     const normalized = normalizeSymbol(input)
     if (!normalized.ok) return { ok: false, reason: normalized.reason }
     const code = normalized.code
     const digits = code.match(/^[a-z]{2}(\d{6})$/i)?.[1]
 
-    const [zhangleResult, tencentResult] = await Promise.allSettled([
-      digits ? zhangleResolve(digits) : Promise.resolve({ ok: false, reason: '非 A 股代码，跳过涨乐校验' }),
-      fetchTencentQuotes([code], { timeoutMs: 6000 }),
-    ])
-
-    const zhangle = zhangleResult.status === 'fulfilled' ? zhangleResult.value : { ok: false, reason: String(zhangleResult.reason) }
-    const tencentQuote = tencentResult.status === 'fulfilled' && tencentResult.value.ok
-      ? tencentResult.value.quotes.find(quote => quote.code.toLowerCase() === code.toLowerCase())
+    // 1) 腾讯优先：常态下 0.2 秒内就能拿到名称与价格，不占用涨乐接口。
+    const tencentResult = await fetchTencentQuotes([code], { timeoutMs: 6000 })
+      .catch(() => ({ ok: false, quotes: [] }))
+    const tencentQuote = tencentResult.ok
+      ? tencentResult.quotes.find(quote => quote.code.toLowerCase() === code.toLowerCase())
       : null
+    if (tencentQuote) {
+      return {
+        ok: true,
+        code,
+        name: tencentQuote.name,
+        source: 'tencent',
+        price: tencentQuote.price,
+        changePct: tencentQuote.changePct,
+        time: tencentQuote.time,
+      }
+    }
 
+    // 2) 腾讯查不到（北交所等边界代码、接口不可达）才动用涨乐；没有 HT_APIKEY 时立即降级。
+    if (!digits) return { ok: false, reason: `行情接口查无此代码：${code}` }
+    const zhangle = await zhangleResolve(digits)
     if (zhangle.ok) {
       return {
         ok: true,
         code,
         name: zhangle.name,
         source: 'zhangle',
-        price: tencentQuote?.price ?? zhangle.price ?? null,
-        changePct: tencentQuote?.changePct ?? zhangle.changePct ?? null,
-        time: tencentQuote?.time ?? null,
+        price: zhangle.price ?? null,
+        changePct: zhangle.changePct ?? null,
+        time: null,
       }
-    }
-    if (tencentQuote) {
-      return { ok: true, code, name: tencentQuote.name, source: 'tencent', price: tencentQuote.price, changePct: tencentQuote.changePct, time: tencentQuote.time }
     }
     return { ok: false, reason: zhangle.reason ?? `行情接口查无此代码：${code}` }
   }

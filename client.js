@@ -1,5 +1,5 @@
 /**
- * @local/stock-ticker — 自选行情悬浮条（Client 半区，浏览器）
+ * stock-ticker — 自选行情悬浮条（Client 半区，浏览器）
  *
  * - shell.overlay：右上角悬浮行情条，全局可见，可折叠；
  * - settings.plugins.tab：「自选行情」设置页（管理股票、刷新间隔、开关）；
@@ -8,7 +8,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/stock-ticker',
+  id: 'stock-ticker',
   factory(require) {
     // 诊断：client 半区加载失败时，renderer 只报 "failed"，原因不会外露。
     // console.error 会被宿主崩溃报告收录，用来定位究竟哪一步抛错。
@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
       'settings.title': '自选股列表',
       'settings.inputPlaceholder': '输入代码回车添加：600519 / sh600519 / 00700 / AAPL',
       'settings.add': '添加',
-      'settings.resolving': '涨乐校验中…（最长约 30 秒）',
+      'settings.resolving': '校验中…',
       'settings.remove': '移除',
       'settings.empty': '暂无自选股，先添加一只吧',
       'settings.intervalLabel': '盘中刷新间隔',
@@ -71,7 +71,7 @@ window.__ModuleLoader__.load({
       'settings.title': 'Watchlist',
       'settings.inputPlaceholder': 'Add by code: 600519 / sh600519 / 00700 / AAPL',
       'settings.add': 'Add',
-      'settings.resolving': 'validating via Zhangle… (up to 30s)',
+      'settings.resolving': 'validating…',
       'settings.remove': 'remove',
       'settings.empty': 'No stocks yet — add one above',
       'settings.intervalLabel': 'Live refresh interval',
