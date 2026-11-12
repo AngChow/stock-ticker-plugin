@@ -18,7 +18,8 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "docs"
   ],
   "keywords": [
     "dsh",
@@ -29,7 +30,8 @@
     "行情"
   ],
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/",
+    "prepack": "node --check index.js && node --check client.js"
   },
   "dsh": {
     "bundle": {

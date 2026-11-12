@@ -95,6 +95,8 @@ node --test tests/
 node --check index.js && node --check client.js
 ```
 
+> 本插件是纯 JS，没有编译步骤：`lib/` 就是源码而不是构建产物，`prepack` 只跑一次语法校验，因此 `npm pack` 出来的包始终与工作区一致。
+
 ### 结构
 
 ```
