@@ -6,20 +6,17 @@
 
 ## 界面
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/images/capsule.jpg" alt="右上角收起态胶囊"></td>
-    <td width="50%"><img src="docs/images/panel.jpg" alt="展开后的自选列表"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>收起态：一枚胶囊，股票名 + 现价 + 涨跌幅</sub></td>
-    <td align="center"><sub>展开：完整自选，并标注「已收盘」等交易阶段</sub></td>
-  </tr>
-</table>
+**收起态** —— 右上角一枚胶囊，股票名 + 现价 + 涨跌幅：
 
-对话页里也一直挂着，不抢输入框的位置：
+![右上角收起态胶囊](docs/images/capsule.jpg)
 
-<img src="docs/images/in-chat.jpg" alt="对话页中的行情胶囊" width="100%">
+**展开** —— 点开是完整自选列表，并标注「已收盘」等交易阶段：
+
+![展开后的自选列表](docs/images/panel.jpg)
+
+**对话页里也一直挂着**，不抢输入框的位置：
+
+![对话页中的行情胶囊](docs/images/in-chat.jpg)
 
 ## 功能
 
