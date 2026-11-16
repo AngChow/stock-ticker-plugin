@@ -109,7 +109,11 @@ window.__ModuleLoader__.load({
 body[data-ds-dark-theme] .stk-up { color: #f87171; }
 body[data-ds-dark-theme] .stk-down { color: #34d399; }
 .stk-overlay { position: fixed; top: 8px; right: 176px; z-index: 90; font-size: 12px;
-  font-family: inherit; user-select: none; }
+  font-family: inherit; user-select: none;
+  /* macOS 桌面端顶部标题栏是窗口拖拽区（data-window-drag）。Electron 的
+     app-region 按几何判定、不看堆叠：悬浮条落在拖拽区内必须显式 no-drag，
+     否则点击被系统当成拖窗口，onClick 永远不触发（与宿主 leadingSeat 同款做法）。 */
+  -webkit-app-region: no-drag; }
 .stk-pill { display: flex; align-items: center; gap: 7px; box-sizing: border-box;
   height: 32px; padding: 0 12px; border-radius: 999px;
   background: rgba(255,255,255,.82);
