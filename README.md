@@ -22,7 +22,7 @@
 
 - **常驻悬浮胶囊**：挂在 `shell.overlay`，任何页面都看得见，可折叠；位置与间距与 DSH 头部按钮行对齐。
 - **展开面板**：点击胶囊展开完整列表，显示名称、代码、现价、涨跌幅，并标注当前交易阶段（盘前 / 盘中 / 午休 / 收盘 / 休市）。
-- **设置页**：`设置 → 插件 → 自选行情` 里管理股票列表、刷新间隔、总开关，保存即热生效并持久化（重启不丢）。
+- **设置页**：`插件 → 自选行情 → 配置` 里管理股票列表、刷新间隔、总开关，保存即热生效并持久化（重启不丢）。
 - **对话内管理**：直接跟 Agent 说「帮我加一只茅台」「刷新改成 5 秒」，会调用 `stock_ticker_manage` 工具。
 - **红涨绿跌**：A 股配色，深色主题下自动换成更亮的红绿。
 - **交易时段感知**：Asia/Shanghai 周一至周五 09:30–11:30、13:00–15:00 视为盘中轮询；午休、盘前、收盘只取一次快照。
@@ -98,7 +98,7 @@ node --check index.js && node --check client.js
 
 ```
 index.js            Host 半区：行情引擎、/api/stock-ticker RPC、stock_ticker_manage 工具
-client.js           Client 半区：shell.overlay 悬浮条 + settings.plugins.tab 设置页
+client.js           Client 半区：shell.overlay 悬浮条 + plugins.row.config 插件行配置页
 lib/
   market-hours.js   交易时段判定（Asia/Shanghai，零副作用）
   normalize.js      股票代码规范化

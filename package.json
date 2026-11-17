@@ -1,6 +1,6 @@
 {
   "name": "stock-ticker",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "DSH 桌面端右上角的 A 股自选行情悬浮条：红涨绿跌、盘中按秒刷新、深浅色自适应",

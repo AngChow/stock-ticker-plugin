@@ -2,7 +2,7 @@
  * stock-ticker — 自选行情悬浮条（Client 半区，浏览器）
  *
  * - shell.overlay：右上角悬浮行情条，全局可见，可折叠；
- * - settings.plugins.tab：「自选行情」设置页（管理股票、刷新间隔、开关）；
+ * - plugins.row.config：「插件」管理页本插件行的配置页（管理股票、刷新间隔、开关）；
  * - 数据来自 Host 半区 RPC（同一浏览器认证栅栏），Client 每秒拉取快照，
  *   价格红涨绿跌（A股配色），页脚显示「更新于 Ns 前」每秒跳动。
  */
@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
       'overlay.updatedAgo': '更新于 {n}s 前',
       'overlay.updating': '行情拉取中…',
       'overlay.never': '等待首次行情…',
-      'overlay.manageHint': '在 设置 → 插件 → 自选行情 中管理股票',
+      'overlay.manageHint': '在 插件 → 自选行情 → 配置 中管理股票',
       'overlay.disabled': '行情显示已关闭',
       'overlay.offline': '行情服务未连接',
       'phase.open': '盘中',
@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
       'overlay.updatedAgo': 'updated {n}s ago',
       'overlay.updating': 'fetching quotes…',
       'overlay.never': 'waiting for first quote…',
-      'overlay.manageHint': 'Manage stocks in Settings → Plugins → Stock Ticker',
+      'overlay.manageHint': 'Manage stocks in Plugins → Stock Ticker → Configure',
       'overlay.disabled': 'Ticker disabled',
       'overlay.offline': 'quote service unavailable',
       'phase.open': 'open',
@@ -458,11 +458,19 @@ body[data-ds-dark-theme] .stk-foot { border-color: rgba(255,255,255,.08); }
             () => h(TickerOverlay, { t }),
           ))
           console.error('[stock-ticker] overlay registered')
-          ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register(
-            { name: 'settings.plugins.tab', id: 'stock-ticker', order: 50, label: () => t('meta.title') },
-            () => h(SettingsPage, { t }),
+          // 配置页挂在「插件」管理页本插件行的配置入口上（key = 包名#行id），
+          // 不再占用 设置→内置插件 的横向 tab；summary 视图不渲染（行描述已有）。
+          // 配置表单直接内嵌在 bundle 详情页（官方 plugins.bundle.config 机制，
+          // 与 CUA/语音输入插件同款）：打开「插件 → 本插件」即可见，无需跳转。
+          ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register(
+            { name: 'plugins.bundle.config', key: 'stock-ticker' },
+            (props) => props?.view === 'page' ? h(SettingsPage, { t }) : null,
           ))
-          console.error('[stock-ticker] settings tab registered')
+          ctx.slots.inject('plugins.row.config', () => ctx.slots.register(
+            { name: 'plugins.row.config', key: 'stock-ticker#stock-ticker' },
+            (props) => props?.view === 'page' ? h(SettingsPage, { t }) : null,
+          ))
+          console.error('[stock-ticker] plugin row config registered')
         } catch (error) {
           console.error('[stock-ticker] APPLY THREW: ' + String(error && error.stack ? error.stack : error))
           throw error

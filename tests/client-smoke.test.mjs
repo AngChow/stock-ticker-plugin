@@ -65,16 +65,12 @@ test('client 插件必须声明 slots/locale 的 inject', () => {
   assert.ok(mod.inject.includes('locale'), "inject 必须包含 'locale'")
 })
 
-test('apply 注册 shell.overlay 与设置页两个槽位，且翻译可用', () => {
+test('apply 注册 overlay、bundle 内嵌配置与行配置页三个槽位，且翻译可用', () => {
   const { mod } = loadClientModule()
   const slots = []
   const injections = []
-  const disposers = []
   const ctx = {
-    effect(fn) {
-      const dispose = fn()
-      if (typeof dispose === 'function') disposers.push(dispose)
-    },
+    effect(fn) { const dispose = fn(); if (typeof dispose === 'function') dispose },
     locale: {
       register() { return () => {} },
       bind() {
@@ -90,22 +86,31 @@ test('apply 注册 shell.overlay 与设置页两个槽位，且翻译可用', ()
 
   mod.apply(ctx)
 
-  assert.deepEqual(injections.map(([owner]) => owner), ['shell.overlay', 'settings.plugins.tab'])
+  assert.deepEqual(injections.map(([owner]) => owner), ['shell.overlay', 'plugins.bundle.config', 'plugins.row.config'])
   for (const [, factory] of injections) factory()
-  assert.equal(slots.length, 2)
+  assert.equal(slots.length, 3)
 
   const bySlot = new Map(slots.map(entry => [entry.options.name, entry]))
-  for (const name of ['shell.overlay', 'settings.plugins.tab']) {
-    const entry = bySlot.get(name)
-    assert.ok(entry, `缺少槽位 ${name}`)
-    assert.equal(entry.options.id, 'stock-ticker')
-    assert.equal(typeof entry.options.order, 'number')
-    assert.equal(typeof entry.component, 'function')
-    assert.equal(entry.options.label(), '自选行情', `${name} 的 label 应解析为中文标题`)
-  }
+  const overlay = bySlot.get('shell.overlay')
+  assert.ok(overlay, '缺少槽位 shell.overlay')
+  assert.equal(overlay.options.id, 'stock-ticker')
+  assert.equal(typeof overlay.options.order, 'number')
+  assert.equal(overlay.options.label(), '自选行情', 'shell.overlay 的 label 应解析为中文标题')
+
+  const bundleConfig = bySlot.get('plugins.bundle.config')
+  assert.ok(bundleConfig, '缺少槽位 plugins.bundle.config')
+  assert.equal(bundleConfig.options.key, 'stock-ticker', 'key 应为包名')
+  assert.equal(bundleConfig.component({ view: 'summary' }), null)
+  assert.ok(bundleConfig.component({ view: 'page' }), 'page 视图应返回设置页元素')
+
+  const rowConfig = bySlot.get('plugins.row.config')
+  assert.ok(rowConfig, '缺少槽位 plugins.row.config')
+  assert.equal(rowConfig.options.key, 'stock-ticker#stock-ticker', 'key 应为 包名#行id')
+  assert.equal(rowConfig.component({ view: 'summary' }), null)
+  assert.ok(rowConfig.component({ view: 'page' }), 'page 视图应返回设置页元素')
 })
 
-test('两个槽位组件首次调用不抛错', () => {
+test('三个槽位组件首次调用不抛错', () => {
   const { mod } = loadClientModule()
   const slots = []
   const ctx = {
@@ -118,7 +123,9 @@ test('两个槽位组件首次调用不抛错', () => {
   }
   mod.apply(ctx)
   for (const { options, component } of slots) {
-    const element = component()
+    // 按槽位分发 props：keyed 配置槽给 view；详情页动作给本插件 subject；list 槽（overlay）无 props。
+    const props = (options.name === 'plugins.row.config' || options.name === 'plugins.bundle.config') ? { view: 'page' } : undefined
+    const element = component(props)
     assert.ok(element, `${options.name} 组件应返回元素`)
     // 模拟 React 调度一次函数组件体
     const rendered = element.type(element.props)
