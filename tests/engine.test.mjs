@@ -10,7 +10,7 @@ import { marketPhase, shanghaiNow, isLivePhase, effectivePhase, PHASE_LABELS } f
 import { normalizeSymbol, displayCode } from '../lib/normalize.js'
 import { fetchTencentQuotes, quotesFresh } from '../lib/quotes-tencent.js'
 import { parseZhangleQuote, htApiKey, resetHtApiKeyCache } from '../lib/zhangle.js'
-import { normalizeSettings } from '../index.js'
+import { normalizeSettings, nonLiveFetchPlan } from '../index.js'
 
 function at(ymd, hhmm, offsetDays = 0) {
   // 在上海时区构造一个确定时刻（本地为 Asia/Shanghai 环境下直接用本地时间等价）
@@ -197,6 +197,37 @@ test('normalizeSettings: 宽容化与去重', () => {
 
   const clamped = normalizeSettings({ pollSeconds: 999 })
   assert.equal(clamped.pollSeconds, 120)
+})
+
+test('nonLiveFetchPlan: 收盘后必须补一次收盘复核', () => {
+  const today = '2026-11-23'
+  const base = { phase: 'closed', today, lastLiveYmd: today, closeSettledYmd: null, fetchedForCurrentList: true }
+  // 收盘后补一次。盘中最后一帧是集合竞价期间的盘口价，不是 15:00 撮合出的收盘价
+  // （实测 002714 停在 45.33、收盘 45.38；000100 停在 4.91、收盘 4.89）。
+  assert.equal(nonLiveFetchPlan(base), 'close-settle')
+  // 已复核 → 不再请求，避免收盘后无限轮询。
+  assert.equal(nonLiveFetchPlan({ ...base, closeSettledYmd: today }), null)
+  // 午休不能核销：否则 15:00 那次真正的收盘复核会被吃掉。
+  assert.equal(nonLiveFetchPlan({ ...base, phase: 'break', closeSettledYmd: null }), null)
+  assert.equal(nonLiveFetchPlan({ ...base, phase: 'pre' }), null)
+})
+
+test('nonLiveFetchPlan: 首次启动与新列表取一次快照', () => {
+  const today = '2026-11-23'
+  assert.equal(
+    nonLiveFetchPlan({ phase: 'closed', today, lastLiveYmd: null, closeSettledYmd: null, fetchedForCurrentList: false }),
+    'snapshot',
+  )
+  // 隔夜：昨天的盘中与复核都不算今天，盘前不重复请求。
+  assert.equal(
+    nonLiveFetchPlan({ phase: 'pre', today, lastLiveYmd: '2026-11-22', closeSettledYmd: '2026-11-22', fetchedForCurrentList: true }),
+    null,
+  )
+  // 周末收盘后启动：lastLiveYmd 是上一交易日 → 只走快照分支一次。
+  assert.equal(
+    nonLiveFetchPlan({ phase: 'closed', today: '2026-11-21', lastLiveYmd: '2026-11-20', closeSettledYmd: '2026-11-20', fetchedForCurrentList: false }),
+    'snapshot',
+  )
 })
 
 test('quotesFresh: 行情时间戳是否为上海时区今天', () => {

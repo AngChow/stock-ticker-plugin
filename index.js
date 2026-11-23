@@ -62,6 +62,27 @@ export function normalizeSettings(raw) {
   return { symbols, pollSeconds, enabled }
 }
 
+/** 收盘后延迟复核：收盘价由 15:00 的集合竞价撮合，接口落库要到 15:00:0x 才更新。 */
+const CLOSE_SETTLE_DELAY_MS = 10_000
+
+/**
+ * 非盘中阶段的取数决策（纯函数，便于单测）。
+ * - 'close-settle'：今天盘中待过、已经收盘、但还没做收盘复核 —— 必须补一次。
+ *   收盘价不来自 14:57–15:00 集合竞价期间的最后一帧盘口（那时现价停在连续竞价
+ *   最后一笔），只靠盘中轮询会把 14:59 的价当收盘价挂一整天
+ *   （实测 002714 停在 45.33，当日收盘 45.38；000100 停在 4.91，收盘 4.89）。
+ *   只在 'closed' 触发：午休（break）也满足「今天盘中待过」，但上午收盘不是
+ *   集合竞价，若在 11:30 就核销掉，15:00 那次真正的复核就没了。
+ * - 'snapshot'：新列表 / 首次启动，取一次收盘或昨收快照。
+ * - null：已有快照且当日已复核，无需再请求。
+ */
+export function nonLiveFetchPlan({ phase, today, lastLiveYmd, closeSettledYmd, fetchedForCurrentList }) {
+  if (phase === 'closed' && lastLiveYmd && lastLiveYmd === today && closeSettledYmd !== today) {
+    return 'close-settle'
+  }
+  return fetchedForCurrentList ? null : 'snapshot'
+}
+
 /** storageDomain 的最小表值 schema（存储边界调用 parse，直通校验）。 */
 const passthroughSchema = {
   parse: value => value,
@@ -326,6 +347,8 @@ function applyUnsafe(ctx, config) {
     lastProbeAt: 0,
     fetching: false,
     fetchedForCurrentList: false,
+    lastLiveYmd: null, // 最近一次处于盘中阶段的交易日（上海时区 ymd）
+    closeSettledYmd: null, // 已做过收盘复核的交易日
     storageError: null,
     rpcError: null,
   }
@@ -426,11 +449,27 @@ function applyUnsafe(ctx, config) {
     return run
   }
 
+  /** 收盘复核定时器：拿不到新快照（网络失败）时清掉标记，让下一轮 tick 重试。 */
+  let closeSettleTimer = null
+  function scheduleCloseSettle() {
+    if (closeSettleTimer !== null) clearTimeout(closeSettleTimer)
+    closeSettleTimer = setTimeout(() => {
+      closeSettleTimer = null
+      const before = state.snapshotAt
+      const retry = () => { state.closeSettledYmd = null }
+      void pollOnce().then(() => {
+        if (state.snapshotAt === before) retry()
+      }, retry)
+    }, CLOSE_SETTLE_DELAY_MS)
+  }
+
   function tick() {
     const wallPhase = marketPhase()
+    const today = shanghaiNow().ymd
     state.phase = effectivePhase(wallPhase, state.holidayStale)
     if (!state.settings.enabled || state.settings.symbols.length === 0) return
     if (isLivePhase(wallPhase)) {
+      state.lastLiveYmd = today
       // 墙钟开盘但行情时间戳滞后 → 节假日休市：按 HOLIDAY_PROBE_MS 低频探测，
       // 探测到当天数据（下一个真实交易日开盘）即恢复 pollSeconds 全速。
       if (state.holidayStale) {
@@ -444,8 +483,20 @@ function applyUnsafe(ctx, config) {
       void pollOnce()
       return
     }
-    // 非盘中：只为当前列表取一次收盘/昨收快照（名称与价格），不持续轮询。
-    if (!state.fetchedForCurrentList) {
+    // 非盘中：首次为当前列表取一次快照；收盘后再补一次「收盘复核」，
+    // 否则 14:59 那一帧（集合竞价期间的盘口价）会被当成收盘价挂到第二天。
+    const plan = nonLiveFetchPlan({
+      phase: wallPhase,
+      today,
+      lastLiveYmd: state.lastLiveYmd,
+      closeSettledYmd: state.closeSettledYmd,
+      fetchedForCurrentList: state.fetchedForCurrentList,
+    })
+    if (plan === 'close-settle') {
+      state.fetchedForCurrentList = true
+      state.closeSettledYmd = today
+      scheduleCloseSettle()
+    } else if (plan === 'snapshot') {
       state.fetchedForCurrentList = true
       void pollOnce()
     }
@@ -681,7 +732,12 @@ function applyUnsafe(ctx, config) {
   }
   })
 
-  return () => {}
+  return () => {
+    if (closeSettleTimer !== null) {
+      clearTimeout(closeSettleTimer)
+      closeSettleTimer = null
+    }
+  }
 }
 
 export default { apply, inject }
