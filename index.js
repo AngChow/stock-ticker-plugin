@@ -515,6 +515,9 @@ function applyUnsafe(ctx, config) {
     const backoffActive = state.retryAt > Date.now()
     if (isLivePhase(wallPhase)) {
       state.lastLiveYmd = today
+      // 午休期间退避可能已经滚到 60s，13:00 开盘瞬间不该再等这么久：
+      // 进入盘中后把剩余退避收窄到盘中上限（3s→10s）。
+      if (state.retryAt > 0) state.retryAt = Math.min(state.retryAt, Date.now() + RETRY_MAX_LIVE_MS)
       // 墙钟开盘但行情时间戳滞后 → 节假日休市：按 HOLIDAY_PROBE_MS 低频探测，
       // 探测到当天数据（下一个真实交易日开盘）即恢复 pollSeconds 全速。
       if (state.holidayStale) {
