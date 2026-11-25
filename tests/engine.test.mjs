@@ -8,9 +8,9 @@ import assert from 'node:assert/strict'
 
 import { marketPhase, shanghaiNow, isLivePhase, effectivePhase, PHASE_LABELS } from '../lib/market-hours.js'
 import { normalizeSymbol, displayCode } from '../lib/normalize.js'
-import { fetchTencentQuotes, quotesFresh } from '../lib/quotes-tencent.js'
+import { fetchTencentQuotes, quotesFresh, describeFetchError } from '../lib/quotes-tencent.js'
 import { parseZhangleQuote, htApiKey, resetHtApiKeyCache } from '../lib/zhangle.js'
-import { normalizeSettings, nonLiveFetchPlan } from '../index.js'
+import { normalizeSettings, nonLiveFetchPlan, retryBackoffMs, RETRY_MAX_LIVE_MS, RETRY_MAX_IDLE_MS } from '../index.js'
 
 function at(ymd, hhmm, offsetDays = 0) {
   // 在上海时区构造一个确定时刻（本地为 Asia/Shanghai 环境下直接用本地时间等价）
@@ -127,6 +127,45 @@ test('fetchTencentQuotes: 网络失败返回错误对象', async () => {
   })
   assert.equal(result.ok, false)
   assert.match(result.error, /boom/)
+})
+
+test('describeFetchError: 把 undici 的 cause.code 翻成人话', () => {
+  // undici 只抛「fetch failed」，真正原因在 cause.code（2026-11-25 开机瞬间的实际形状）
+  const fetchFailed = new TypeError('fetch failed')
+  fetchFailed.cause = Object.assign(new Error('getaddrinfo ENOTFOUND qt.gtimg.cn'), { code: 'ENOTFOUND' })
+  assert.equal(describeFetchError(fetchFailed), '行情请求失败：DNS 解析失败（ENOTFOUND）')
+
+  const tls = new TypeError('fetch failed')
+  tls.cause = Object.assign(new Error('certificate has expired'), { code: 'CERT_HAS_EXPIRED' })
+  assert.match(describeFetchError(tls), /证书已过期/)
+
+  const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+  assert.equal(describeFetchError(timeout), '行情请求超时')
+
+  // 没有 code 时保留原始 message，不能吞掉细节
+  assert.equal(describeFetchError(new Error('boom')), '行情请求失败：boom')
+
+  // 未知 code 也要带出来，便于继续排查
+  const weird = new TypeError('fetch failed')
+  weird.cause = Object.assign(new Error('socket hang up'), { code: 'UND_ERR_WEIRD' })
+  assert.equal(describeFetchError(weird), '行情请求失败：fetch failed（UND_ERR_WEIRD）')
+})
+
+test('retryBackoffMs: 指数退避 + 盘中/非盘中两档上限', () => {
+  // 成功过（streak=0）不设等待
+  assert.equal(retryBackoffMs(0, true), 0)
+  assert.equal(retryBackoffMs(0, false), 0)
+
+  // 盘中：3s → 6s，之后封顶 10s（盘中要尽快恢复）
+  assert.equal(retryBackoffMs(1, true), 3_000)
+  assert.equal(retryBackoffMs(2, true), 6_000)
+  assert.equal(retryBackoffMs(3, true), RETRY_MAX_LIVE_MS)
+  assert.equal(retryBackoffMs(99, true), RETRY_MAX_LIVE_MS)
+
+  // 非盘中：可以放宽到 60s，但必须仍能在网络恢复后一分钟内自愈
+  assert.equal(retryBackoffMs(1, false), 3_000)
+  assert.equal(retryBackoffMs(4, false), 24_000)
+  assert.equal(retryBackoffMs(99, false), RETRY_MAX_IDLE_MS)
 })
 
 test('fetchTencentQuotes: 空列表直接返回', async () => {

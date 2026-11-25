@@ -83,6 +83,23 @@ export function nonLiveFetchPlan({ phase, today, lastLiveYmd, closeSettledYmd, f
   return fetchedForCurrentList ? null : 'snapshot'
 }
 
+/**
+ * 失败退避（纯函数，便于单测）：上一次取数失败后隔多久再试。
+ * 盘中希望尽快恢复（≤10s），非盘中（盘前/午休/收盘）断网时不值得每秒空转，
+ * 但也要保证网络恢复后一分钟内能自愈 —— 上限 60s。
+ * 指数增长 3s → 6s → 12s → 24s → 48s → 封顶。
+ */
+export const RETRY_BASE_MS = 3_000
+export const RETRY_MAX_LIVE_MS = 10_000
+export const RETRY_MAX_IDLE_MS = 60_000
+
+export function retryBackoffMs(failStreak, live) {
+  const streak = Number.isFinite(failStreak) && failStreak > 0 ? Math.floor(failStreak) : 0
+  if (streak === 0) return 0
+  const cap = live ? RETRY_MAX_LIVE_MS : RETRY_MAX_IDLE_MS
+  return Math.min(cap, RETRY_BASE_MS * 2 ** Math.min(streak - 1, 5))
+}
+
 /** storageDomain 的最小表值 schema（存储边界调用 parse，直通校验）。 */
 const passthroughSchema = {
   parse: value => value,
@@ -349,6 +366,8 @@ function applyUnsafe(ctx, config) {
     fetchedForCurrentList: false,
     lastLiveYmd: null, // 最近一次处于盘中阶段的交易日（上海时区 ymd）
     closeSettledYmd: null, // 已做过收盘复核的交易日
+    failStreak: 0, // 连续失败次数（成功后清零），用于退避
+    retryAt: 0, // 早于此时刻不再发起请求（失败退避窗口）
     storageError: null,
     rpcError: null,
   }
@@ -417,6 +436,13 @@ function applyUnsafe(ctx, config) {
   let fetchChain = Promise.resolve()
   let inFlight = 0
 
+  /** 失败记账：记录错误并按「盘中/非盘中」分别退避，避免断网时每秒空转。 */
+  function markFetchFailed(message) {
+    state.lastError = message
+    state.failStreak += 1
+    state.retryAt = Date.now() + retryBackoffMs(state.failStreak, isLivePhase(marketPhase()))
+  }
+
   async function doFetch() {
     inFlight++
     try {
@@ -426,6 +452,8 @@ function applyUnsafe(ctx, config) {
         state.snapshotAt = Date.now()
         state.invalidCodes = result.invalid
         state.lastError = result.invalid.length > 0 ? `无行情数据：${result.invalid.join('、')}` : null
+        state.failStreak = 0
+        state.retryAt = 0
         // 节假日自检：行情时间戳全部滞后于上海时区今天 → 墙钟开盘窗口其实是休市；
         // 任一行情恢复当天日期立即解除。无可解析时间（null）时保持原判定。
         const fresh = quotesFresh(result.quotes, shanghaiNow().ymd)
@@ -434,10 +462,10 @@ function applyUnsafe(ctx, config) {
           state.holidayStale = !fresh
         }
       } else {
-        state.lastError = result.error
+        markFetchFailed(result.error)
       }
     } catch (error) {
-      state.lastError = error?.message ?? String(error)
+      markFetchFailed(error?.message ?? String(error))
     } finally {
       inFlight--
     }
@@ -463,11 +491,28 @@ function applyUnsafe(ctx, config) {
     }, CLOSE_SETTLE_DELAY_MS)
   }
 
+  /** 非盘中「为新列表取一次快照」的异步销账：拿到数据才置标记，失败留待退避后重试。 */
+  let snapshotPending = false
+  function takeSnapshotOnce() {
+    if (snapshotPending) return
+    const before = state.snapshotAt
+    snapshotPending = true
+    const finish = () => {
+      snapshotPending = false
+      // 失败时不销账：fetchedForCurrentList 保持 false，退避窗口过后自动再试，
+      // 避免「开机时网络没就绪 → 整个午休都空着、错误挂一小时」（0.2.3 的老问题）。
+      if (state.snapshotAt !== before) state.fetchedForCurrentList = true
+    }
+    void pollOnce().then(finish, finish)
+  }
+
   function tick() {
     const wallPhase = marketPhase()
     const today = shanghaiNow().ymd
     state.phase = effectivePhase(wallPhase, state.holidayStale)
     if (!state.settings.enabled || state.settings.symbols.length === 0) return
+    // 失败退避窗口内不发起请求（成功一次即清零）。
+    const backoffActive = state.retryAt > Date.now()
     if (isLivePhase(wallPhase)) {
       state.lastLiveYmd = today
       // 墙钟开盘但行情时间戳滞后 → 节假日休市：按 HOLIDAY_PROBE_MS 低频探测，
@@ -480,6 +525,7 @@ function applyUnsafe(ctx, config) {
         }
         return
       }
+      if (backoffActive) return
       void pollOnce()
       return
     }
@@ -492,13 +538,13 @@ function applyUnsafe(ctx, config) {
       closeSettledYmd: state.closeSettledYmd,
       fetchedForCurrentList: state.fetchedForCurrentList,
     })
+    if (backoffActive) return
     if (plan === 'close-settle') {
       state.fetchedForCurrentList = true
       state.closeSettledYmd = today
       scheduleCloseSettle()
     } else if (plan === 'snapshot') {
-      state.fetchedForCurrentList = true
-      void pollOnce()
+      takeSnapshotOnce()
     }
   }
 
